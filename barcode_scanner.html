@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>手機條碼掃描機</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        #interactive.viewport {
+            width: 100%;
+            max-width: 600px; /* 限制影片寬度 */
+            height: auto;
+            position: relative;
+            margin-bottom: 20px;
+            overflow: hidden; /* 防止內容溢出 */
+            background-color: #000; /* 預設背景色 */
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        #interactive.viewport canvas,
+        #interactive.viewport video {
+            width: 100%;
+            height: auto; /* 保持比例 */
+            display: block;
+            object-fit: contain; /* 確保影片內容完整顯示 */
+        }
+        #result-container {
+            width: 100%;
+            max-width: 600px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            margin-top: 10px;
+        }
+        #result {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #007BFF;
+            word-break: break-all; /* 防止長數字溢出 */
+        }
+        #hint {
+            color: #666;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        .error-message {
+            color: red;
+            font-weight: bold;
+            margin-top: 15px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>手機條碼掃描機</h1>
+
+    <div id="interactive" class="viewport"></div>
+
+    <div id="result-container">
+        <p>掃描結果：</p>
+        <div id="result">等待掃描...</div>
+        <p id="hint">請將條碼對準畫面中央</p>
+    </div>
+
+    <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+    <script>
+        // DOM 元素引用
+        const resultDiv = document.getElementById('result');
+        const hintDiv = document.getElementById('hint');
+        const interactiveDiv = document.getElementById('interactive');
+
+        // QuaggaJS 初始化設定
+        const QuaggaConfig = {
+            inputStream: {
+                name: "Live",
+                type: "LiveStream",
+                target: interactiveDiv, // 條碼掃描器會顯示在這裡
+                constraints: {
+                    facingMode: "environment" // 優先使用後置鏡頭
+                },
+                numOfWorkers: navigator.hardwareConcurrency || 2, // 使用更多 worker 提升效能
+            },
+            decoder: {
+                readers: [
+                    "code_128_reader", // 最常見的條碼類型之一
+                    "ean_reader",      // 歐洲商品條碼
+                    "ean_8_reader",    // 歐洲商品條碼 (短碼)
+                    "code_39_reader",  // 另一種常見條碼
+                    "upc_reader",      // 美國商品條碼
+                    "upc_e_reader"     // 美國商品條碼 (短碼)
+                ],
+                debug: {
+                    showCanvas: false, // 不顯示 Quagga 內部用於偵錯的畫布
+                    showPatches: false,
+                    showFoundPatches: false,
+                    showSkeleton: false,
+                    showLabels: false,
+                    showPatchLabels: false,
+                    showRemainingPatchLabels: false,
+                    boxFromPatches: {
+                        showTransformed: false,
+                        showTransformedBox: false,
+                        showTrimmed: false
+                    },
+                    showQuaggaNodes: false,
+                    showCodeline: false,
+                    showViewport: false
+                }
+            },
+            locator: {
+                patchSize: "medium", // 偵測條碼的區域大小
+                halfSample: true // 減少處理的像素，提高效能
+            },
+            debug: {
+                drawBoundingBox: true, // 顯示偵測到的條碼框
+                drawScanline: true,    // 顯示掃描線
+                showCanvas: false // QuaggaJS 自己預設的偵錯畫布
+            },
+            frequency: 10, // 每秒偵測頻率 (數字越小越頻繁)
+            multiple: false // 只掃描一個條碼
+        };
+
+        // 啟動 QuaggaJS
+        Quagga.init(QuaggaConfig, function(err) {
+            if (err) {
+                console.error("Quagga 初始化失敗:", err);
+                resultDiv.textContent = "錯誤：無法啟動相機，請確認已授權或切換到 HTTPS 環境。";
+                hintDiv.textContent = "";
+                // 額外提示使用者啟用權限或 HTTPS
+                if (window.location.protocol !== "https:") {
+                    resultDiv.innerHTML += '<br><span class="error-message">請確保網頁透過 **HTTPS (安全連線)** 開啟。</span>';
+                } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                     resultDiv.innerHTML += '<br><span class="error-message">請檢查您的瀏覽器是否已授權此網站使用相機。</span>';
+                }
+                return;
+            }
+            console.log("Quagga 初始化成功，正在啟動相機...");
+            Quagga.start();
+            hintDiv.textContent = "請將條碼對準畫面中央";
+        });
+
+        // 監聽掃描結果
+        Quagga.onDetected(function(data) {
+            if (data && data.codeResult && data.codeResult.code) {
+                const barcodeNumber = data.codeResult.code;
+                resultDiv.textContent = barcodeNumber;
+                hintDiv.textContent = "掃描成功！";
+                console.log("掃描到的條碼:", barcodeNumber);
+
+                // 如果您希望在掃描到結果後停止掃描，可以取消註解下面這行
+                // Quagga.stop();
+            }
+        });
+
+        // 監聽偵測過程中的即時結果 (可以忽略，主要用於偵錯)
+        Quagga.onProcessed(function(result) {
+            const drawingCtx = Quagga.canvas.ctx.overlay;
+            const drawingCanvas = Quagga.canvas.dom.overlay;
+
+            if (result) {
+                if (result.boxes) {
+                    drawingCtx.clearRect(0, 0, parseInt(drawingCanvas.width), parseInt(drawingCanvas.height));
+                    result.boxes.filter(function (box) {
+                        return box !== result.box;
+                    }).forEach(function (box) {
+                        Quagga.ImageDebug.drawPath(box, {x: 0, y: 1}, drawingCtx, {color: "green", lineWidth: 2});
+                    });
+                }
+
+                if (result.box) {
+                    Quagga.ImageDebug.drawPath(result.box, {x: 0, y: 1}, drawingCtx, {color: "#00F", lineWidth: 2});
+                }
+
+                if (result.codeResult && result.codeResult.code) {
+                    Quagga.ImageDebug.drawPath(result.line, {x: 'x', y: 'y'}, drawingCtx, {color: 'red', lineWidth: 3});
+                }
+            }
+        });
+
+        // 確保在頁面關閉或重新整理時停止 QuaggaJS，釋放相機資源
+        window.addEventListener('beforeunload', function() {
+            Quagga.stop();
+        });
+    </script>
+</body>
+</html>

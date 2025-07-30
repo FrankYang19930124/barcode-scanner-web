@@ -15,7 +15,8 @@
             align-items: center;
             min-height: 100vh;
             box-sizing: border-box;
-            overflow: hidden; /* 防止內容溢出導致滾動條 */
+            overflow-x: hidden; /* 防止水平滾動條 */
+            overflow-y: auto; /* 允許垂直滾動 */
         }
         h1 {
             color: #333;
@@ -23,27 +24,24 @@
             margin-bottom: 15px;
             font-size: 1.8em;
         }
-        /* 條碼掃描器的容器 */
         #interactive.viewport {
             width: 95%;
             max-width: 500px;
-            aspect-ratio: 4/3; /* 固定寬高比 */
+            aspect-ratio: 4/3;
             position: relative;
             margin-bottom: 15px;
             overflow: hidden;
-            background-color: #000; /* 相機啟動前的背景色 */
+            background-color: #000;
             border-radius: 8px;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
-
-        /* 我們自己創建的 video 元素和 QuaggaJS 繪圖 canvas */
         #interactive.viewport video {
             width: 100%;
             height: 100%;
-            object-fit: cover; /* 填充整個容器 */
-            transform: scaleX(-1); /* 鏡像翻轉 */
-            filter: brightness(1.1); /* 稍微增加亮度 */
-            display: block; /* 確保影片是塊級元素 */
+            object-fit: cover;
+            transform: scaleX(-1);
+            filter: brightness(1.1);
+            display: block;
         }
         #interactive.viewport canvas.drawingBuffer {
             position: absolute;
@@ -51,11 +49,9 @@
             left: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none; /* 讓滑鼠事件穿透到下面的 video */
+            pointer-events: none;
         }
 
-
-        /* 掃描結果顯示容器 */
         #result-container {
             width: 95%;
             max-width: 500px;
@@ -92,6 +88,104 @@
             margin-top: 15px;
             text-align: center;
         }
+
+        /* 新增的按鈕樣式 */
+        #recordButton {
+            background-color: #28a745; /* 綠色按鈕 */
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 1.2em;
+            cursor: pointer;
+            margin-top: 15px;
+            width: 80%; /* 按鈕寬度 */
+            max-width: 250px;
+            transition: background-color 0.3s ease;
+        }
+        #recordButton:hover {
+            background-color: #218838;
+        }
+        #recordButton:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        /* 新增的記錄列表樣式 */
+        #recorded-barcodes-container {
+            width: 95%;
+            max-width: 500px;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            margin-top: 20px; /* 與上方區塊的距離 */
+            box-sizing: border-box;
+        }
+        #recorded-barcodes-container h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        #recorded-list {
+            list-style-type: none; /* 移除列表項目符號 */
+            padding: 0;
+            margin: 0;
+            max-height: 250px; /* 限制列表高度，超過則滾動 */
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        #recorded-list li {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 1.1em;
+            color: #555;
+            display: flex;
+            justify-content: space-between; /* 數字和複製按鈕分開 */
+            align-items: center;
+        }
+        #recorded-list li:last-child {
+            border-bottom: none;
+        }
+        #recorded-list li:nth-child(even) {
+            background-color: #f0f0f0; /* 斑馬紋效果 */
+        }
+        .copy-button {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 5px 8px;
+            font-size: 0.8em;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .copy-button:hover {
+            background-color: #0056b3;
+        }
+        .copy-button:active {
+            background-color: #004085;
+        }
+
+        /* 清除按鈕 */
+        #clearButton {
+            background-color: #dc3545; /* 紅色 */
+            color: white;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 5px;
+            font-size: 0.9em;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: background-color 0.3s ease;
+        }
+        #clearButton:hover {
+            background-color: #c82333;
+        }
+
         /* 針對行動裝置的額外調整 */
         @media (max-width: 600px) {
             h1 {
@@ -99,6 +193,10 @@
             }
             #result {
                 font-size: 1.3em;
+            }
+            #recordButton {
+                font-size: 1em;
+                padding: 8px 15px;
             }
         }
     </style>
@@ -114,36 +212,47 @@
         <p>掃描結果：</p>
         <div id="result">等待掃描...</div>
         <p id="hint">請將條碼對準畫面中央</p>
+        <button id="recordButton" disabled>記錄此條碼</button>
+    </div>
+
+    <div id="recorded-barcodes-container">
+        <h2>已記錄的條碼</h2>
+        <ul id="recorded-list">
+            </ul>
+        <button id="clearButton">清除所有記錄</button>
     </div>
 
     <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
     <script>
-        // DOM 元素引用
         const resultDiv = document.getElementById('result');
         const hintDiv = document.getElementById('hint');
         const interactiveDiv = document.getElementById('interactive');
-        const videoElement = document.getElementById('videoElement'); // 我們自己創建的 video 元素
+        const videoElement = document.getElementById('videoElement');
+        const recordButton = document.getElementById('recordButton'); // 記錄按鈕
+        const recordedList = document.getElementById('recorded-list'); // 記錄列表
+        const clearButton = document.getElementById('clearButton'); // 清除按鈕
 
-        // 更新提示訊息的函式
+        let lastScannedBarcode = null; // 用於儲存最後一個掃描到的條碼
+
         function updateStatus(message, isError = false) {
             resultDiv.innerHTML = isError ? `<span class="error-message">${message}</span>` : `<span class="status-message">${message}</span>`;
             hintDiv.textContent = "";
+            recordButton.disabled = true; // 狀態訊息時禁用記錄按鈕
         }
 
-        // 步驟 1: 取得相機串流並設定到 video 元素
         async function setupCamera() {
             try {
                 updateStatus("正在請求相機權限...");
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
-                        facingMode: "environment" // 優先使用後置鏡頭
+                        facingMode: "environment"
                     }
                 });
                 videoElement.srcObject = stream;
-                await videoElement.play(); // 確保影片開始播放
+                await videoElement.play();
 
                 updateStatus("相機已啟動，正在初始化掃描器...");
-                startBarcodeScanner(stream); // 將串流傳給 QuaggaJS
+                startBarcodeScanner(stream);
                 hintDiv.textContent = "請將條碼對準畫面中央";
 
             } catch (err) {
@@ -160,18 +269,13 @@
             }
         }
 
-        // 步驟 2: 初始化 QuaggaJS
         function startBarcodeScanner(stream) {
             const QuaggaConfig = {
                 inputStream: {
                     name: "Live",
                     type: "LiveStream",
-                    // *** 這裡修改為傳遞我們的 video 元素 ***
-                    target: videoElement, // 將 QuaggaJS 的輸入目標設為我們的 video 元素
-                    constraints: {
-                        // 這裡不再需要 facingMode，因為已經在 getUserMedia 中設定了
-                        // width 和 height 也由 video 元素處理
-                    },
+                    target: videoElement,
+                    constraints: {},
                     numOfWorkers: navigator.hardwareConcurrency || 2,
                 },
                 decoder: {
@@ -188,7 +292,7 @@
                 debug: {
                     drawBoundingBox: true,
                     drawScanline: true,
-                    showCanvas: false // QuaggaJS 自己預設的偵錯畫布
+                    showCanvas: false
                 },
                 frequency: 10,
                 multiple: false
@@ -202,29 +306,24 @@
                 }
                 console.log("Quagga 初始化成功，正在啟動掃描...");
                 Quagga.start();
-
-                // 移除之前移動 video/canvas 的代碼，因為現在 QuaggaJS 直接使用我們的 video
-                // 並且它會自動在 #interactive.viewport 內創建一個 canvas.drawingBuffer
             });
         }
 
-        // 頁面載入時啟動相機
         window.onload = setupCamera;
 
-        // 監聽掃描結果
         Quagga.onDetected(function(data) {
             if (data && data.codeResult && data.codeResult.code) {
                 const barcodeNumber = data.codeResult.code;
-                resultDiv.textContent = barcodeNumber;
-                hintDiv.textContent = "掃描成功！";
-                console.log("掃描到的條碼:", barcodeNumber);
-
-                // 如果您希望在掃描到結果後停止掃描，可以取消註解下面這行
-                // Quagga.stop();
+                if (barcodeNumber !== lastScannedBarcode) { // 避免重複記錄相同的條碼（如果條碼一直在鏡頭前）
+                    resultDiv.textContent = barcodeNumber;
+                    hintDiv.textContent = "掃描成功！";
+                    console.log("掃描到的條碼:", barcodeNumber);
+                    lastScannedBarcode = barcodeNumber; // 更新最後掃描到的條碼
+                    recordButton.disabled = false; // 啟用記錄按鈕
+                }
             }
         });
 
-        // 監聽偵測過程中的即時結果 (用於繪製邊框和掃描線)
         Quagga.onProcessed(function(result) {
             const drawingCtx = Quagga.canvas.ctx.overlay;
             const drawingCanvas = Quagga.canvas.dom.overlay;
@@ -246,6 +345,50 @@
                 }
             }
         });
+
+        // 監聽記錄按鈕點擊事件
+        recordButton.addEventListener('click', function() {
+            if (lastScannedBarcode) {
+                addBarcodeToRecordList(lastScannedBarcode);
+                lastScannedBarcode = null; // 清空，等待下一個掃描
+                resultDiv.textContent = "等待掃描..."; // 重置顯示
+                hintDiv.textContent = "請將條碼對準畫面中央";
+                recordButton.disabled = true; // 禁用按鈕直到掃描到新條碼
+            }
+        });
+
+        // 將條碼添加到列表的函式
+        function addBarcodeToRecordList(barcode) {
+            const listItem = document.createElement('li');
+            listItem.textContent = barcode;
+
+            // 新增複製按鈕
+            const copyButton = document.createElement('button');
+            copyButton.textContent = '複製';
+            copyButton.className = 'copy-button';
+            copyButton.onclick = function() {
+                navigator.clipboard.writeText(barcode).then(() => {
+                    copyButton.textContent = '已複製!';
+                    setTimeout(() => copyButton.textContent = '複製', 1500); // 1.5秒後恢復
+                }).catch(err => {
+                    console.error('複製失敗: ', err);
+                    alert('複製失敗，請手動複製: ' + barcode);
+                });
+            };
+            listItem.appendChild(copyButton);
+
+            recordedList.prepend(listItem); // 新的記錄添加到列表最上方
+            // 可以選擇滾動到最上方
+            // recordedList.scrollTop = 0; // for scroll to top if needed
+        }
+
+        // 監聽清除按鈕點擊事件
+        clearButton.addEventListener('click', function() {
+            if (confirm("確定要清除所有記錄嗎？")) {
+                recordedList.innerHTML = ''; // 清空列表
+            }
+        });
+
 
         // 確保在頁面關閉或重新整理時停止 QuaggaJS，釋放相機資源
         window.addEventListener('beforeunload', function() {

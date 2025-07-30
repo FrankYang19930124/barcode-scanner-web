@@ -34,21 +34,26 @@
             background-color: #000; /* 相機啟動前的背景色 */
             border-radius: 8px;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            /* 移除這裡的 flexbox，因為我們直接控制 Quagga 創建的 video */
         }
 
-        /* QuaggaJS 創建的 video 和 canvas 元素樣式 */
-        #interactive.viewport video,
-        #interactive.viewport canvas {
+        /* 我們自己創建的 video 元素和 QuaggaJS 繪圖 canvas */
+        #interactive.viewport video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* 填充整個容器 */
+            transform: scaleX(-1); /* 鏡像翻轉 */
+            filter: brightness(1.1); /* 稍微增加亮度 */
+            display: block; /* 確保影片是塊級元素 */
+        }
+        #interactive.viewport canvas.drawingBuffer {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover; /* 使用 cover 填充整個容器，可能會有裁切 */
-            transform: scaleX(-1); /* 鏡像翻轉 */
-            filter: brightness(1.1); /* 稍微增加亮度 */
+            pointer-events: none; /* 讓滑鼠事件穿透到下面的 video */
         }
+
 
         /* 掃描結果顯示容器 */
         #result-container {
@@ -95,15 +100,15 @@
             #result {
                 font-size: 1.3em;
             }
-            /* 讓容器高度隨內容調整，如果 aspect-ratio 夠用，這裡可不設 */
-            /* #interactive.viewport { height: 250px; } */
         }
     </style>
 </head>
 <body>
     <h1>手機條碼掃描機</h1>
 
-    <div id="interactive" class="viewport"></div>
+    <div id="interactive" class="viewport">
+        <video id="videoElement" autoplay playsinline></video>
+    </div>
 
     <div id="result-container">
         <p>掃描結果：</p>
@@ -117,55 +122,32 @@
         const resultDiv = document.getElementById('result');
         const hintDiv = document.getElementById('hint');
         const interactiveDiv = document.getElementById('interactive');
+        const videoElement = document.getElementById('videoElement'); // 我們自己創建的 video 元素
 
         // 更新提示訊息的函式
         function updateStatus(message, isError = false) {
             resultDiv.innerHTML = isError ? `<span class="error-message">${message}</span>` : `<span class="status-message">${message}</span>`;
-            hintDiv.textContent = ""; // 清空提示
+            hintDiv.textContent = "";
         }
 
-        // QuaggaJS 初始化設定
-        const QuaggaConfig = {
-            inputStream: {
-                name: "Live",
-                type: "LiveStream",
-                // *** 這裡修改為 null，讓 QuaggaJS 自動創建 video 元素 ***
-                target: null,
-                constraints: {
-                    facingMode: "environment" // 優先使用後置鏡頭
-                },
-                numOfWorkers: navigator.hardwareConcurrency || 2,
-            },
-            decoder: {
-                readers: [
-                    "code_128_reader",
-                    "ean_reader",
-                    "ean_8_reader",
-                    "code_39_reader",
-                    "upc_reader",
-                    "upc_e_reader"
-                ],
-                debug: {
-                    showCanvas: false,
-                }
-            },
-            locator: {
-                patchSize: "medium",
-                halfSample: true
-            },
-            debug: {
-                drawBoundingBox: true,
-                drawScanline: true,
-                showCanvas: false
-            },
-            frequency: 10,
-            multiple: false
-        };
+        // 步驟 1: 取得相機串流並設定到 video 元素
+        async function setupCamera() {
+            try {
+                updateStatus("正在請求相機權限...");
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: "environment" // 優先使用後置鏡頭
+                    }
+                });
+                videoElement.srcObject = stream;
+                await videoElement.play(); // 確保影片開始播放
 
-        // 啟動 QuaggaJS
-        Quagga.init(QuaggaConfig, function(err) {
-            if (err) {
-                console.error("Quagga 初始化失敗:", err);
+                updateStatus("相機已啟動，正在初始化掃描器...");
+                startBarcodeScanner(stream); // 將串流傳給 QuaggaJS
+                hintDiv.textContent = "請將條碼對準畫面中央";
+
+            } catch (err) {
+                console.error("無法存取相機:", err);
                 let errorMessage = "錯誤：無法啟動相機。";
                 if (window.location.protocol !== "https:") {
                     errorMessage += '<br>請確保網頁透過 **HTTPS (安全連線)** 開啟。';
@@ -175,28 +157,59 @@
                     errorMessage += '<br>未找到可用的相機。';
                 }
                 updateStatus(errorMessage, true);
-                return;
             }
-            console.log("Quagga 初始化成功，正在啟動相機...");
-            updateStatus("相機啟動中...");
-            Quagga.start();
+        }
 
-            // *** 新增的代碼：將 QuaggaJS 生成的 video 和 canvas 移動到我們的容器中 ***
-            // QuaggaJS 通常會將 video 和 canvas 元素直接插入 body
-            // 我們找到這些元素並將它們移動到 #interactive.viewport 中
-            const videoElement = document.querySelector('video');
-            const canvasElement = document.querySelector('canvas.drawingBuffer'); // QuaggaJS 的繪圖畫布
+        // 步驟 2: 初始化 QuaggaJS
+        function startBarcodeScanner(stream) {
+            const QuaggaConfig = {
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    // *** 這裡修改為傳遞我們的 video 元素 ***
+                    target: videoElement, // 將 QuaggaJS 的輸入目標設為我們的 video 元素
+                    constraints: {
+                        // 這裡不再需要 facingMode，因為已經在 getUserMedia 中設定了
+                        // width 和 height 也由 video 元素處理
+                    },
+                    numOfWorkers: navigator.hardwareConcurrency || 2,
+                },
+                decoder: {
+                    readers: [
+                        "code_128_reader", "ean_reader", "ean_8_reader",
+                        "code_39_reader", "upc_reader", "upc_e_reader"
+                    ],
+                    debug: { showCanvas: false }
+                },
+                locator: {
+                    patchSize: "medium",
+                    halfSample: true
+                },
+                debug: {
+                    drawBoundingBox: true,
+                    drawScanline: true,
+                    showCanvas: false // QuaggaJS 自己預設的偵錯畫布
+                },
+                frequency: 10,
+                multiple: false
+            };
 
-            if (videoElement) {
-                interactiveDiv.appendChild(videoElement);
-            }
-            if (canvasElement) {
-                interactiveDiv.appendChild(canvasElement);
-            }
-            // *** 結束新增的代碼 ***
+            Quagga.init(QuaggaConfig, function(err) {
+                if (err) {
+                    console.error("Quagga 初始化失敗:", err);
+                    updateStatus("掃描器初始化失敗。", true);
+                    return;
+                }
+                console.log("Quagga 初始化成功，正在啟動掃描...");
+                Quagga.start();
 
-            hintDiv.textContent = "請將條碼對準畫面中央";
-        });
+                // 移除之前移動 video/canvas 的代碼，因為現在 QuaggaJS 直接使用我們的 video
+                // 並且它會自動在 #interactive.viewport 內創建一個 canvas.drawingBuffer
+            });
+        }
+
+        // 頁面載入時啟動相機
+        window.onload = setupCamera;
 
         // 監聽掃描結果
         Quagga.onDetected(function(data) {
